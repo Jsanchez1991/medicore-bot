@@ -13,14 +13,23 @@ INFORMACIÓN DEL CONSULTORIO:
 - Dirección: ${process.env.CLINIC_ADDRESS}
 ${process.env.CLINIC_PRICE ? `- Valor de la consulta: ${process.env.CLINIC_PRICE}` : ''}
 
-CÓMO ATENDER AL PACIENTE:
-1. Saluda amablemente cuando sea el primer mensaje
-2. Para agendar una cita necesitas: nombre completo, motivo de consulta, fecha y hora preferida
-3. SIEMPRE verifica disponibilidad con get_available_slots antes de ofrecer horarios — nunca inventes horarios
-4. Ofrece máximo 3-4 opciones de horario para no abrumar
-5. Confirma todos los detalles con el paciente antes de crear la cita
-6. Solo crea la cita con create_appointment cuando el paciente confirme explícitamente
-7. Tras crear la cita, da un resumen claro con fecha, hora y dirección
+FLUJO OBLIGATORIO PARA AGENDAR CITA:
+1. Saluda amablemente en el primer mensaje
+2. Pregunta el motivo de la consulta
+3. **SIEMPRE pide el número de cédula** antes de proceder — usa verificar_paciente para buscar al paciente
+4. Si el paciente existe: saluda por su nombre y confirma sus datos
+5. Si NO existe: registra nombre completo y número de teléfono para crear un perfil nuevo
+6. Verifica disponibilidad con get_available_slots antes de ofrecer horarios — NUNCA inventes horarios
+7. Ofrece máximo 3-4 opciones de horario
+8. Confirma TODOS los datos (nombre, fecha, hora, motivo) antes de crear la cita
+9. Solo crea la cita con create_appointment cuando el paciente confirme explícitamente
+10. Tras crear la cita, da un resumen claro con fecha, hora y dirección
+
+FLUJO PARA CONSULTAR CITAS:
+- Pide la cédula → usa verificar_paciente → luego get_my_appointments
+
+FLUJO PARA CANCELAR CITA:
+- Pide la cédula → muestra las citas → confirma cuál cancelar → usa cancel_appointment
 
 TONO: Cálido, profesional, conciso. Usa emojis con moderación (📅 ✅ 👩‍⚕️ 📍).
 IDIOMA: Siempre en español.
@@ -29,6 +38,17 @@ LÍMITES: Si preguntan algo que no puedes responder, sugiere llamar al consultor
 }
 
 const tools = [
+  {
+    name: 'verificar_paciente',
+    description: 'Busca un paciente en la base de datos por su número de cédula. Usar SIEMPRE antes de agendar, consultar o cancelar citas.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        cedula: { type: 'string', description: 'Número de cédula del paciente (solo dígitos)' }
+      },
+      required: ['cedula']
+    }
+  },
   {
     name: 'get_available_slots',
     description: 'Obtiene los horarios disponibles para citas en un rango de fechas. Usar SIEMPRE antes de ofrecer horarios al paciente.',
@@ -47,24 +67,25 @@ const tools = [
     input_schema: {
       type: 'object',
       properties: {
-        nombre: { type: 'string', description: 'Nombre completo del paciente' },
-        telefono: { type: 'string', description: 'Número de teléfono del paciente' },
-        fecha: { type: 'string', description: 'Fecha en formato YYYY-MM-DD' },
-        hora: { type: 'string', description: 'Hora en formato HH:MM (ej: 09:00)' },
-        motivo: { type: 'string', description: 'Motivo de la consulta' }
+        nombre:    { type: 'string', description: 'Nombre completo del paciente' },
+        cedula:    { type: 'string', description: 'Número de cédula del paciente' },
+        telefono:  { type: 'string', description: 'Número de teléfono del paciente' },
+        fecha:     { type: 'string', description: 'Fecha en formato YYYY-MM-DD' },
+        hora:      { type: 'string', description: 'Hora en formato HH:MM (ej: 09:00)' },
+        motivo:    { type: 'string', description: 'Motivo de la consulta' }
       },
       required: ['nombre', 'telefono', 'fecha', 'hora', 'motivo']
     }
   },
   {
     name: 'get_my_appointments',
-    description: 'Consulta las citas futuras del paciente que está escribiendo.',
+    description: 'Consulta las citas futuras del paciente.',
     input_schema: {
       type: 'object',
       properties: {
-        telefono: { type: 'string', description: 'Teléfono del paciente' }
-      },
-      required: ['telefono']
+        cedula:   { type: 'string', description: 'Cédula del paciente (preferido)' },
+        telefono: { type: 'string', description: 'Teléfono del paciente (alternativo)' }
+      }
     }
   },
   {
@@ -83,22 +104,53 @@ const tools = [
 async function runTool(name, input, phone) {
   try {
     switch (name) {
+      case 'verificar_paciente': {
+        const patient = await sb.getPatientByCedula(input.cedula);
+        if (patient) {
+          return JSON.stringify({
+            encontrado: true,
+            id: patient.id,
+            nombre: patient.nombre,
+            apellido: patient.apellido,
+            cedula: patient.cedula,
+            telefono: patient.tel || '',
+            email: patient.email || '',
+            nacimiento: patient.nacimiento || '',
+            sexo: patient.sexo || '',
+            alergias: patient.alergias || ''
+          });
+        } else {
+          return JSON.stringify({
+            encontrado: false,
+            mensaje: 'Paciente no encontrado en la base de datos. Se creará un perfil nuevo al agendar la cita.'
+          });
+        }
+      }
+
       case 'get_available_slots': {
         const slots = await sb.getAvailableSlots(input.fecha_inicio, input.fecha_fin);
         return JSON.stringify(slots.length ? slots : { mensaje: 'No hay horarios disponibles en ese período. Prueba otras fechas.' });
       }
+
       case 'create_appointment': {
-        const result = await sb.createAppointment({ ...input, telefono: input.telefono || phone });
+        const result = await sb.createAppointment({
+          ...input,
+          cedula:   input.cedula   || null,
+          telefono: input.telefono || phone
+        });
         return JSON.stringify({ exito: true, cita_id: result.cita?.id, paciente: result.paciente?.nombre });
       }
+
       case 'get_my_appointments': {
-        const appts = await sb.getPatientAppointments(input.telefono || phone);
+        const appts = await sb.getPatientAppointments(input.telefono || phone, input.cedula);
         return JSON.stringify(appts.length ? appts : { mensaje: 'No tiene citas programadas.' });
       }
+
       case 'cancel_appointment': {
         await sb.cancelAppointment(input.cita_id);
         return JSON.stringify({ exito: true });
       }
+
       default:
         return JSON.stringify({ error: 'Herramienta no encontrada' });
     }
