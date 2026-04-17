@@ -6,6 +6,17 @@ const sb = createClient(
   process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY
 );
 
+// Convierte dd/mm/aaaa o dd-mm-aaaa → YYYY-MM-DD (acepta también YYYY-MM-DD directo)
+function parseFecha(str) {
+  if (!str) return null;
+  // Ya está en formato ISO
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  // dd/mm/aaaa o dd-mm-aaaa
+  const m = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  return null;
+}
+
 const TIME_SLOTS = [
   '08:00','08:30','09:00','09:30','10:00','10:30','11:00','11:30',
   '14:00','14:30','15:00','15:30','16:00','16:30'
@@ -67,7 +78,7 @@ async function getAvailableSlots(fechaInicio, fechaFin) {
 }
 
 // ── Crear cita (con registro de paciente si no existe) ──
-async function createAppointment({ nombre, cedula, telefono, fecha, hora, motivo }) {
+async function createAppointment({ nombre, cedula, telefono, fecha_nacimiento, sexo, fecha, hora, motivo }) {
   const doctorId = await getDoctorId();
 
   // 1. Buscar por cédula primero, luego por teléfono
@@ -88,6 +99,8 @@ async function createAppointment({ nombre, cedula, telefono, fecha, hora, motivo
         apellido:  pApellido,
         cedula:    cedula?.replace(/\D/g, '') || null,
         tel:       telefono || null,
+        fecha_nac: parseFecha(fecha_nacimiento),
+        sexo:      sexo || null,
         estado:    'activo',
         doctor_id: doctorId
       })

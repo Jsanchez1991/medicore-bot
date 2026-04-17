@@ -18,7 +18,7 @@ FLUJO OBLIGATORIO PARA AGENDAR CITA:
 2. Pregunta el motivo de la consulta
 3. **SIEMPRE pide el número de cédula** antes de proceder — usa verificar_paciente para buscar al paciente
 4. Si el paciente existe: saluda por su nombre y confirma sus datos
-5. Si NO existe: registra nombre completo y número de teléfono para crear un perfil nuevo
+5. Si NO existe: pide en este orden — nombre completo, fecha de nacimiento (dd/mm/aaaa) y sexo (Masculino/Femenino). El teléfono ya lo tienes del WhatsApp.
 6. Verifica disponibilidad con get_available_slots antes de ofrecer horarios — NUNCA inventes horarios
 7. Ofrece máximo 3-4 opciones de horario
 8. Confirma TODOS los datos (nombre, fecha, hora, motivo) antes de crear la cita
@@ -67,12 +67,14 @@ const tools = [
     input_schema: {
       type: 'object',
       properties: {
-        nombre:    { type: 'string', description: 'Nombre completo del paciente' },
-        cedula:    { type: 'string', description: 'Número de cédula del paciente' },
-        telefono:  { type: 'string', description: 'Número de teléfono del paciente' },
-        fecha:     { type: 'string', description: 'Fecha en formato YYYY-MM-DD' },
-        hora:      { type: 'string', description: 'Hora en formato HH:MM (ej: 09:00)' },
-        motivo:    { type: 'string', description: 'Motivo de la consulta' }
+        nombre:           { type: 'string', description: 'Nombre completo del paciente' },
+        cedula:           { type: 'string', description: 'Número de cédula del paciente' },
+        telefono:         { type: 'string', description: 'Número de teléfono del paciente' },
+        fecha_nacimiento: { type: 'string', description: 'Fecha de nacimiento en formato YYYY-MM-DD (solo para pacientes nuevos)' },
+        sexo:             { type: 'string', description: 'Sexo del paciente: Masculino o Femenino (solo para pacientes nuevos)' },
+        fecha:            { type: 'string', description: 'Fecha de la cita en formato YYYY-MM-DD' },
+        hora:             { type: 'string', description: 'Hora en formato HH:MM (ej: 09:00)' },
+        motivo:           { type: 'string', description: 'Motivo de la consulta' }
       },
       required: ['nombre', 'telefono', 'fecha', 'hora', 'motivo']
     }
@@ -135,8 +137,10 @@ async function runTool(name, input, phone) {
       case 'create_appointment': {
         const result = await sb.createAppointment({
           ...input,
-          cedula:   input.cedula   || null,
-          telefono: input.telefono || phone
+          cedula:           input.cedula           || null,
+          fecha_nacimiento: input.fecha_nacimiento || null,
+          sexo:             input.sexo             || null,
+          telefono:         input.telefono         || phone
         });
         return JSON.stringify({ exito: true, cita_id: result.cita?.id, paciente: result.paciente?.nombre });
       }
