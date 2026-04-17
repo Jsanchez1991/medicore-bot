@@ -35,56 +35,63 @@ async function sendTyping(to) {
   } catch (_) {}
 }
 
-// ── Extract phone + text from ANY WaSenderAPI payload format ──
+// ── Extract phone + text from WaSenderAPI payload ──
+// WaSenderAPI uses Spanish field names: evento, datos, mensajes, llave, messageBody
 function parseMessage(body) {
-  const event = (body.event || body.type || '').toLowerCase();
-  const data   = body.data || body;
+  // WaSenderAPI uses "evento" (Spanish) as the event key
+  const event = (body.evento || body.event || body.type || '').toLowerCase();
 
-  // Log full payload for debugging
-  console.log('📨 RAW:', JSON.stringify(body, null, 2));
+  console.log('📨 Event:', event);
 
-  // Skip test events
-  if (event === 'webhook.test' || event === 'test') return null;
+  // Skip test and non-message events
+  if (event.includes('test')) return null;
 
-  // ── Format 1: Baileys style (messages.upsert / message-upsert)
-  if (data.messages && Array.isArray(data.messages)) {
-    const msg = data.messages[0];
-    if (!msg) return null;
-    if (msg.key?.fromMe) return null; // ignore our own
-    const jid  = msg.key?.remoteJid || '';
-    const from = jid.replace('@s.whatsapp.net','').replace('@c.us','');
-    if (jid.includes('@g.us') || from.includes('-')) return null; // ignore groups
-    const text = msg.message?.conversation
-               || msg.message?.extendedTextMessage?.text
-               || msg.message?.imageMessage?.caption
-               || null;
-    if (!text) return null;
-    return { from, text };
+  // Only process upsert events (avoid double-processing recibidos + upsert)
+  if (!event.includes('upsert') && !event.includes('recibidos') && !event.includes('received')) return null;
+  if (event.includes('recibidos') || event.includes('received')) return null; // only upsert
+
+  // WaSenderAPI data is under "datos" (Spanish for "data")
+  const data = body.datos || body.data || body;
+
+  // Message is under "mensajes" (can be object or array)
+  const msgs = data.mensajes || data.messages;
+  if (!msgs) return null;
+
+  // Handle both array and single object
+  const msg = Array.isArray(msgs) ? msgs[0] : msgs;
+  if (!msg) return null;
+
+  // "llave" = "key" in Spanish
+  const key = msg.llave || msg.key || {};
+
+  // Ignore own messages
+  if (key.fromMe === true || key.fromMe === 'true' || key.fromMe === 'falso' === false) {
+    if (key.fromMe) return null;
   }
 
-  // ── Format 2: Simple flat format (webhook-personal-message-received)
-  if (data.from || data.sender || data.phoneNumber) {
-    const from = (data.from || data.sender || data.phoneNumber || '')
-      .replace('@s.whatsapp.net','').replace('@c.us','').replace(/\D/g,'');
-    if (!from) return null;
-    if (from === BOT_PHONE) return null; // ignore own
-    if (from.includes('-')) return null; // ignore groups
-    const text = data.body || data.text || data.message || null;
-    if (!text || typeof text !== 'string') return null;
-    return { from, text };
-  }
+  // Get clean phone number — "cleanedSenderPn" is already clean
+  const from = (
+    msg.cleanedSenderPn ||
+    (msg.senderPn || '').replace('@s.whatsapp.net', '') ||
+    (key.senderPn || '').replace('@s.whatsapp.net', '') ||
+    ''
+  ).replace(/\D/g, '');
 
-  // ── Format 3: Nested message object
-  if (data.message) {
-    const msg  = data.message;
-    const from = (msg.from || msg.sender || '').replace(/\D/g,'');
-    if (!from || from === BOT_PHONE) return null;
-    const text = msg.body || msg.text || msg.content || null;
-    if (!text || typeof text !== 'string') return null;
-    return { from, text };
-  }
+  if (!from || from === BOT_PHONE) return null;
 
-  return null;
+  // "messageBody" is a flattened convenience field WaSenderAPI provides
+  // "conversación" = "conversation" in Spanish
+  const text = msg.messageBody ||
+    msg.mensaje?.conversación ||
+    msg.mensaje?.conversation ||
+    msg.message?.conversation ||
+    msg.message?.extendedTextMessage?.text ||
+    null;
+
+  if (!text || typeof text !== 'string' || text.trim() === '') return null;
+
+  console.log(`📱 [${from}]: ${text}`);
+  return { from, text };
 }
 
 // ── Webhook endpoint ──
