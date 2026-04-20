@@ -3,6 +3,7 @@ const express = require('express');
 const axios = require('axios');
 const { getSession } = require('./sessions');
 const { chat } = require('./claude');
+const { startReminderScheduler, runReminderCycle } = require('./reminders');
 
 const app = express();
 app.use(express.json());
@@ -128,9 +129,20 @@ app.get('/', (req, res) => {
   });
 });
 
+// ── Manual trigger (para pruebas): GET /reminders/run?key=SECRET ──
+app.get('/reminders/run', async (req, res) => {
+  const key = req.query.key;
+  if (key !== process.env.REMINDER_KEY) return res.status(401).json({ error: 'unauthorized' });
+  await runReminderCycle(sendWhatsApp);
+  res.json({ ok: true, ran: new Date().toISOString() });
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`\n🤖 ${process.env.CLINIC_NAME} — WhatsApp Bot`);
   console.log(`🚀 Port: ${PORT}`);
   console.log(`📱 Phone: ${BOT_PHONE}\n`);
+
+  // Arrancar el scheduler de recordatorios
+  startReminderScheduler(sendWhatsApp);
 });

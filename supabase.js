@@ -154,11 +154,62 @@ async function cancelAppointment(citaId) {
   return true;
 }
 
+// ── Citas que necesitan recordatorio (24h o 2h antes) ──
+// Devuelve citas con datos del paciente ya incluidos (join)
+async function getAppointmentsNeedingReminder(type /* '24h' | '2h' */) {
+  const now = new Date();
+  let from, to, flagCol;
+
+  if (type === '24h') {
+    // Ventana: desde 24h hasta 23h antes (1 hora de tolerancia)
+    from = new Date(now.getTime() + 23 * 60 * 60 * 1000);
+    to   = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    flagCol = 'recordatorio_24h_enviado';
+  } else {
+    // Ventana: desde 2h hasta 1h antes
+    from = new Date(now.getTime() +     60 * 60 * 1000);
+    to   = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+    flagCol = 'recordatorio_2h_enviado';
+  }
+
+  const fromDate = from.toISOString().split('T')[0];
+  const toDate   = to.toISOString().split('T')[0];
+
+  const { data, error } = await sb
+    .from('citas')
+    .select(`
+      id, fecha, hora, motivo, estado,
+      ${flagCol},
+      pacientes!inner ( id, nombre, apellido, tel, cedula )
+    `)
+    .gte('fecha', fromDate)
+    .lte('fecha', toDate)
+    .eq(flagCol, false)
+    .neq('estado', 'cancelada');
+
+  if (error) { console.error('Error cargando recordatorios:', error); return []; }
+
+  // Filtrar con precisión comparando la fecha+hora exacta
+  return (data || []).filter(c => {
+    const [h, m] = (c.hora || '00:00').slice(0, 5).split(':').map(Number);
+    const when = new Date(c.fecha + 'T00:00:00');
+    when.setHours(h, m, 0, 0);
+    return when >= from && when <= to;
+  });
+}
+
+async function markReminderSent(citaId, type) {
+  const col = type === '24h' ? 'recordatorio_24h_enviado' : 'recordatorio_2h_enviado';
+  await sb.from('citas').update({ [col]: true }).eq('id', citaId);
+}
+
 module.exports = {
   getPatientByCedula,
   getPatientByPhone,
   getAvailableSlots,
   createAppointment,
   getPatientAppointments,
-  cancelAppointment
+  cancelAppointment,
+  getAppointmentsNeedingReminder,
+  markReminderSent
 };
