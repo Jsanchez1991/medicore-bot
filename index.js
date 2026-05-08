@@ -23,6 +23,7 @@ async function sendWhatsApp(to, text) {
     console.log(`✅ Sent to ${phone}: ${text.slice(0,60)}...`);
   } catch (e) {
     console.error(`❌ Send error:`, e.response?.data || e.message);
+    throw e;
   }
 }
 
@@ -115,7 +116,9 @@ app.post('/webhook', async (req, res) => {
     await sendWhatsApp(from, reply);
   } catch (e) {
     console.error('❌ Error processing:', e.message);
-    await sendWhatsApp(from, '⚠️ Disculpe, tuvimos un problema técnico. Por favor intente de nuevo.');
+    try {
+      await sendWhatsApp(from, '⚠️ Disculpe, tuvimos un problema técnico. Por favor intente de nuevo.');
+    } catch (_) {}
   }
 });
 

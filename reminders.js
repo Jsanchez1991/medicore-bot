@@ -54,7 +54,7 @@ async function runReminderCycle(sendWhatsApp) {
       console.log(`🔔 ${citas.length} recordatorio(s) ${type} pendientes`);
 
       for (const cita of citas) {
-        const phone = cita.pacientes?.tel;
+        const phone = cita.pacientes?.telefono;
         if (!phone) {
           console.warn(`⚠️  Cita ${cita.id} sin teléfono — salta`);
           continue;
